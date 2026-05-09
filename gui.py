@@ -90,16 +90,24 @@ class FaceMeshApp(TKMT.ThemedTKinterFrame):
     def toggle_process_state(self):
         self.detection_running = not self.detection_running
         self.status_label.config(text=f"Processing: On" if self.detection_running else 'Idle')
-        # ws.MessageBeep(ws.MB_ICONEXCLAMATION)
+        self._notify_user()
 
     def add_new_face_to_db(self):
         cropped_img = self.get_current_cropped_face()
         
         if self.detection_running is False:
+            self._notify_user()
             messagebox.showwarning("Warning", "Face detection is not active. Please start the camera processing.")
             return
 
+        if self._has_multiple_faces():
+            self.status_label.config(text="Multiple Faces Detected")
+            self._notify_user()
+            messagebox.showerror("Error", "Multiple faces detected. Please make sure only one face is visible.")
+            return
+
         if cropped_img is None or cropped_img.size == 0:
+            self._notify_user()
             messagebox.showerror("Error", "No face detected! Turn on processing and look at the camera.")
             return
 
@@ -109,8 +117,10 @@ class FaceMeshApp(TKMT.ThemedTKinterFrame):
             success = self.db.add_user(name, cropped_img)
             if success:
                 self.known_faces_cache = self.db.get_all_users()
+                self._notify_user()
                 messagebox.showinfo("Success", f"Saved {name} to database.")
             else:
+                self._notify_user()
                 messagebox.showerror("Error", "Failed to save to database.")
 
     def export_data(self):
@@ -194,16 +204,25 @@ class FaceMeshApp(TKMT.ThemedTKinterFrame):
         
     def log_attendance_process(self):
         if not self.detection_running:
+            self._notify_user()
             messagebox.showwarning("Warning", "Face detection is not active. Please start the camera processing.")
+            return
+
+        if self._has_multiple_faces():
+            self.status_label.config(text="Multiple Faces Detected")
+            self._notify_user()
+            messagebox.showerror("Error", "Multiple faces detected. Attendance logging requires exactly one face.")
             return
 
         target_img = self.get_current_cropped_face()
         if target_img is None or target_img.size == 0:
+            self._notify_user()
             messagebox.showerror("Error", "No face detected! Turn on processing and look at the camera.")
             return
 
         users = self.known_faces_cache
         if not users:
+            self._notify_user()
             messagebox.showerror("Error", "Database is empty. Add a face first.")
             return
 
@@ -229,24 +248,31 @@ class FaceMeshApp(TKMT.ThemedTKinterFrame):
                     
                     if success:
                         msg = f"Attendance Logged: {best_match_name}\nTime: {timestamp_str}"
-                        # ws.MessageBeep(ws.MB_OK)
+                        self._notify_user()
                         messagebox.showinfo("Attendance Success", msg)
                         self.status_label.config(text=f"Logged: {best_match_name}, at {timestamp_str}")
                     else:
                         msg = "Match found, but Database Write Failed."
-                        # ws.MessageBeep(ws.MB_ICONHAND)
+                        self._notify_user()
                         messagebox.showerror("Database Error", msg)
                         self.status_label.config(text="Write Error")
             else:
                 msg = "Identity rejected by user. Please adjust lighting or angle and try again."
                 self.status_label.config(text="Identity Rejected")
+                self._notify_user()
                 messagebox.showinfo("Retry", msg)
 
         else:
             msg = "No Match Found in Database."
-            # ws.MessageBeep(ws.MB_ICONHAND)
             self.status_label.config(text="Unknown Face")
+            self._notify_user()
             messagebox.showwarning("Failed", msg)
+
+    def _notify_user(self):
+        self.root.bell()
+
+    def _has_multiple_faces(self) -> bool:
+        return bool(self.results and self.results.face_landmarks and len(self.results.face_landmarks) > 1)
 
     def get_current_cropped_face(self):
         if not self.results or not self.results.face_landmarks or self.current_frame_bgr is None:
@@ -312,9 +338,13 @@ class FaceMeshApp(TKMT.ThemedTKinterFrame):
 
                 if self.results.face_landmarks:
                     num_faces = len(self.results.face_landmarks)
-                    if num_faces >= 1:
+                    if num_faces == 1:
                         status_text = 'Face Detected'
                         status_color = (0, 255, 0)
+                        self.display_image = self.draw_landmarks_on_image(self.display_image, self.results)
+                    elif num_faces > 1:
+                        status_text = 'Multiple Faces Detected'
+                        status_color = (0, 0, 255)
                         self.display_image = self.draw_landmarks_on_image(self.display_image, self.results)
 
                 text_color = (0, 255, 0) if status_color == (0, 255, 0) else (255, 0, 0)
