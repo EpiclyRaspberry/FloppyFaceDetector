@@ -22,14 +22,16 @@ from face_processor import FaceLandmarkerWrapper
 from recognizer import FaceRecognizer
 
 class FaceMeshApp(TKMT.ThemedTKinterFrame):
-    WINDOW_WIDTH = 620
-    WINDOW_HEIGHT = 560
+    WINDOW_WIDTH = 980
+    WINDOW_HEIGHT = 760
     WIDTH = 640
     HEIGHT = 480
 
     def __init__(self):
         super().__init__("Face Attendance", "park", "dark")
-        self.root.geometry(f"{self.WINDOW_WIDTH + 40}x{self.WINDOW_HEIGHT + 150}")
+        self.root.geometry(f"{self.WINDOW_WIDTH}x{self.WINDOW_HEIGHT}")
+        self.root.minsize(self.WINDOW_WIDTH, self.WINDOW_HEIGHT)
+        self.root.configure(bg="#101820")
 
 
         # Initialize Modules
@@ -44,6 +46,8 @@ class FaceMeshApp(TKMT.ThemedTKinterFrame):
         self.results: vision.FaceLandmarkerResult = None # type: ignore
         self.display_image = None 
         self.current_frame_bgr = None 
+        self.status_text = "Idle"
+        self.status_tone = "idle"
         # Camera
         self.cap = cv2.VideoCapture(0)
         
@@ -58,38 +62,272 @@ class FaceMeshApp(TKMT.ThemedTKinterFrame):
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         self.root.after(10, self.update_frame)
 
-    # ... [Paste setup_widgets, toggle_process_state, etc.] ...
     def setup_widgets(self):
-        self.video_label = self.Label("", padx=10, pady=10)
-        self.status_label = self.Label(text="Idle")
-        
-        self.buttonRows = self.addFrame("buttonrows", padx=10, pady=5, sticky=tk.W + tk.E)
-        self.buttonRows.snap_button = self.buttonRows.Button( # type: ignore
-            "Log Attendance", 
-            command=self.log_attendance_process, 
-            pady=5, col=0, sticky=tk.W + tk.E
+        self.root.grid_columnconfigure(0, weight=3)
+        self.root.grid_columnconfigure(1, weight=2)
+        self.root.grid_rowconfigure(1, weight=1)
+
+        self.header_frame = tk.Frame(self.root, bg="#101820", padx=20, pady=18)
+        self.header_frame.grid(row=0, column=0, columnspan=2, sticky="ew")
+        self.header_frame.grid_columnconfigure(0, weight=1)
+
+        self.title_label = tk.Label(
+            self.header_frame,
+            text="Face Attendance Console",
+            font=("Segoe UI", 20, "bold"),
+            fg="#F4F1DE",
+            bg="#101820",
         )
-        
-        self.buttonRows.start_process_button = self.buttonRows.Button( # type: ignore
-            "Start/Stop Camera", 
+        self.title_label.grid(row=0, column=0, sticky="w")
+
+        self.subtitle_label = tk.Label(
+            self.header_frame,
+            text="Live detection, face enrollment, and attendance export in one workspace.",
+            font=("Segoe UI", 10),
+            fg="#9DB4C0",
+            bg="#101820",
+        )
+        self.subtitle_label.grid(row=1, column=0, sticky="w", pady=(4, 0))
+
+        self.preview_card = tk.Frame(
+            self.root,
+            bg="#17232F",
+            highlightbackground="#2A3A4A",
+            highlightthickness=1,
+            padx=18,
+            pady=18,
+        )
+        self.preview_card.grid(row=1, column=0, sticky="nsew", padx=(20, 10), pady=(0, 20))
+        self.preview_card.grid_columnconfigure(0, weight=1)
+
+        self.preview_title = tk.Label(
+            self.preview_card,
+            text="Camera Preview",
+            font=("Segoe UI", 14, "bold"),
+            fg="#F4F1DE",
+            bg="#17232F",
+        )
+        self.preview_title.grid(row=0, column=0, sticky="w")
+
+        self.preview_hint = tk.Label(
+            self.preview_card,
+            text="Keep one face centered for reliable matching and enrollment.",
+            font=("Segoe UI", 9),
+            fg="#91A3B0",
+            bg="#17232F",
+        )
+        self.preview_hint.grid(row=1, column=0, sticky="w", pady=(2, 12))
+
+        self.video_frame = tk.Frame(
+            self.preview_card,
+            bg="#0B1117",
+            highlightbackground="#2F4858",
+            highlightthickness=1,
+            padx=10,
+            pady=10,
+        )
+        self.video_frame.grid(row=2, column=0, sticky="nsew")
+
+        self.video_label = tk.Label(
+            self.video_frame,
+            bg="#0B1117",
+            fg="#F4F1DE",
+            text="Waiting for camera feed...",
+            font=("Segoe UI", 11),
+        )
+        self.video_label.pack(fill="both", expand=True)
+
+        self.side_panel = tk.Frame(self.root, bg="#101820")
+        self.side_panel.grid(row=1, column=1, sticky="nsew", padx=(10, 20), pady=(0, 20))
+        self.side_panel.grid_columnconfigure(0, weight=1)
+
+        self.status_card = tk.Frame(
+            self.side_panel,
+            bg="#17232F",
+            highlightbackground="#2A3A4A",
+            highlightthickness=1,
+            padx=18,
+            pady=18,
+        )
+        self.status_card.grid(row=0, column=0, sticky="ew")
+        self.status_card.grid_columnconfigure(0, weight=1)
+
+        self.status_heading = tk.Label(
+            self.status_card,
+            text="System Status",
+            font=("Segoe UI", 13, "bold"),
+            fg="#F4F1DE",
+            bg="#17232F",
+        )
+        self.status_heading.grid(row=0, column=0, sticky="w")
+
+        self.status_label = tk.Label(
+            self.status_card,
+            text="Idle",
+            font=("Segoe UI", 16, "bold"),
+            fg="#F4F1DE",
+            bg="#263845",
+            padx=14,
+            pady=10,
+        )
+        self.status_label.grid(row=1, column=0, sticky="ew", pady=(12, 10))
+
+        self.status_detail_label = tk.Label(
+            self.status_card,
+            text="Camera is ready. Start processing to begin detection.",
+            font=("Segoe UI", 10),
+            fg="#9DB4C0",
+            bg="#17232F",
+            justify="left",
+            wraplength=260,
+        )
+        self.status_detail_label.grid(row=2, column=0, sticky="w")
+
+        self.metrics_card = tk.Frame(
+            self.side_panel,
+            bg="#17232F",
+            highlightbackground="#2A3A4A",
+            highlightthickness=1,
+            padx=18,
+            pady=18,
+        )
+        self.metrics_card.grid(row=1, column=0, sticky="ew", pady=(14, 0))
+        self.metrics_card.grid_columnconfigure(0, weight=1)
+        self.metrics_card.grid_columnconfigure(1, weight=1)
+
+        self.db_count_value = tk.Label(
+            self.metrics_card,
+            text="0",
+            font=("Segoe UI", 22, "bold"),
+            fg="#F2CC8F",
+            bg="#17232F",
+        )
+        self.db_count_value.grid(row=0, column=0, sticky="w")
+        self.db_count_label = tk.Label(
+            self.metrics_card,
+            text="Registered faces",
+            font=("Segoe UI", 10),
+            fg="#9DB4C0",
+            bg="#17232F",
+        )
+        self.db_count_label.grid(row=1, column=0, sticky="w")
+
+        self.frame_faces_value = tk.Label(
+            self.metrics_card,
+            text="0",
+            font=("Segoe UI", 22, "bold"),
+            fg="#81B29A",
+            bg="#17232F",
+        )
+        self.frame_faces_value.grid(row=0, column=1, sticky="w")
+        self.frame_faces_label = tk.Label(
+            self.metrics_card,
+            text="Faces in frame",
+            font=("Segoe UI", 10),
+            fg="#9DB4C0",
+            bg="#17232F",
+        )
+        self.frame_faces_label.grid(row=1, column=1, sticky="w")
+
+        self.actions_card = tk.Frame(
+            self.side_panel,
+            bg="#17232F",
+            highlightbackground="#2A3A4A",
+            highlightthickness=1,
+            padx=18,
+            pady=18,
+        )
+        self.actions_card.grid(row=2, column=0, sticky="ew", pady=(14, 0))
+        self.actions_card.grid_columnconfigure(0, weight=1)
+
+        self.actions_heading = tk.Label(
+            self.actions_card,
+            text="Actions",
+            font=("Segoe UI", 13, "bold"),
+            fg="#F4F1DE",
+            bg="#17232F",
+        )
+        self.actions_heading.grid(row=0, column=0, sticky="w")
+
+        self.start_process_button = tk.Button(
+            self.actions_card,
+            text="Start Camera Processing",
             command=self.toggle_process_state,
-            pady=5, col=1, sticky=tk.W + tk.E
+            font=("Segoe UI", 11, "bold"),
+            bg="#3D5A80",
+            fg="#F4F1DE",
+            activebackground="#4B6C96",
+            activeforeground="#F4F1DE",
+            relief="flat",
+            bd=0,
+            padx=12,
+            pady=12,
+            cursor="hand2",
         )
-        
-        self.add_new_button = self.Button(
-            "Add New Face to DB", 
-            command=self.add_new_face_to_db, 
-            pady=5
+        self.start_process_button.grid(row=1, column=0, sticky="ew", pady=(14, 10))
+
+        self.snap_button = tk.Button(
+            self.actions_card,
+            text="Log Attendance",
+            command=self.log_attendance_process,
+            font=("Segoe UI", 11, "bold"),
+            bg="#81B29A",
+            fg="#0B1117",
+            activebackground="#8FC4AA",
+            activeforeground="#0B1117",
+            relief="flat",
+            bd=0,
+            padx=12,
+            pady=12,
+            cursor="hand2",
         )
-        self.export_button = self.Button(
-            "Export DB to Excel", 
+        self.snap_button.grid(row=2, column=0, sticky="ew", pady=(0, 10))
+
+        self.add_new_button = tk.Button(
+            self.actions_card,
+            text="Add Face To Database",
+            command=self.add_new_face_to_db,
+            font=("Segoe UI", 11, "bold"),
+            bg="#F2CC8F",
+            fg="#0B1117",
+            activebackground="#F6D8A7",
+            activeforeground="#0B1117",
+            relief="flat",
+            bd=0,
+            padx=12,
+            pady=12,
+            cursor="hand2",
+        )
+        self.add_new_button.grid(row=3, column=0, sticky="ew", pady=(0, 10))
+
+        self.export_button = tk.Button(
+            self.actions_card,
+            text="Export Database To Excel",
             command=self.export_data,
-            pady=5
+            font=("Segoe UI", 11, "bold"),
+            bg="#E07A5F",
+            fg="#F4F1DE",
+            activebackground="#E89079",
+            activeforeground="#F4F1DE",
+            relief="flat",
+            bd=0,
+            padx=12,
+            pady=12,
+            cursor="hand2",
         )
+        self.export_button.grid(row=4, column=0, sticky="ew")
+
+        self._refresh_counts()
+        self._set_status("Idle", "idle", "Camera is ready. Start processing to begin detection.")
     
     def toggle_process_state(self):
         self.detection_running = not self.detection_running
-        self.status_label.config(text=f"Processing: On" if self.detection_running else 'Idle')
+        if self.detection_running:
+            self.start_process_button.config(text="Stop Camera Processing", bg="#8D99AE", activebackground="#A6B0C1")
+            self._set_status("Processing Enabled", "idle", "Live face detection is active.")
+        else:
+            self.start_process_button.config(text="Start Camera Processing", bg="#3D5A80", activebackground="#4B6C96")
+            self._set_status("Idle", "idle", "Detection paused. Camera preview is still available.")
         self._notify_user()
 
     def add_new_face_to_db(self):
@@ -101,12 +339,13 @@ class FaceMeshApp(TKMT.ThemedTKinterFrame):
             return
 
         if self._has_multiple_faces():
-            self.status_label.config(text="Multiple Faces Detected")
+            self._set_status("Multiple Faces Detected", "error", "Only one face can be enrolled at a time.")
             self._notify_user()
             messagebox.showerror("Error", "Multiple faces detected. Please make sure only one face is visible.")
             return
 
         if cropped_img is None or cropped_img.size == 0:
+            self._set_status("No Face Detected", "error", "No usable face was found for enrollment.")
             self._notify_user()
             messagebox.showerror("Error", "No face detected! Turn on processing and look at the camera.")
             return
@@ -117,18 +356,23 @@ class FaceMeshApp(TKMT.ThemedTKinterFrame):
             success = self.db.add_user(name, cropped_img)
             if success:
                 self.known_faces_cache = self.db.get_all_users()
+                self._refresh_counts()
+                self._set_status("Face Saved", "success", f"Saved {name} to the local face database.")
                 self._notify_user()
                 messagebox.showinfo("Success", f"Saved {name} to database.")
             else:
+                self._set_status("Database Write Error", "error", "The face image could not be written to the database.")
                 self._notify_user()
                 messagebox.showerror("Error", "Failed to save to database.")
 
     def export_data(self):
         filename = "attendance_report.xlsx"
         if self.export_to_excel(filename):
+            self._set_status("Export Complete", "success", f"Attendance workbook saved as {filename}.")
             messagebox.showinfo("Export Success", f"Data exported to {filename}")
             self._open_export_file(filename)
         else:
+            self._set_status("Export Failed", "error", "Excel export did not complete successfully.")
             messagebox.showerror("Export Failed", "Could not export data.")
 
     def export_to_excel(self, filename="attendance_report.xlsx"):
@@ -159,6 +403,27 @@ class FaceMeshApp(TKMT.ThemedTKinterFrame):
         except Exception as e:
             print(f"Export failed: {e}")
             return False
+
+    def _set_status(self, text: str, tone: str, detail: str):
+        palette = {
+            "idle": {"bg": "#263845", "fg": "#F4F1DE"},
+            "success": {"bg": "#24463A", "fg": "#DFF3E3"},
+            "error": {"bg": "#5B2A2A", "fg": "#FFE2E2"},
+            "working": {"bg": "#5A4316", "fg": "#FFF1CC"},
+        }
+        style = palette.get(tone, palette["idle"])
+        self.status_text = text
+        self.status_tone = tone
+        self.status_label.config(text=text, bg=style["bg"], fg=style["fg"])
+        self.status_detail_label.config(text=detail)
+
+    def _refresh_counts(self):
+        self.db_count_value.config(text=str(len(self.known_faces_cache)))
+
+        faces_in_frame = 0
+        if self.results and self.results.face_landmarks:
+            faces_in_frame = len(self.results.face_landmarks)
+        self.frame_faces_value.config(text=str(faces_in_frame))
 
     def _export_sheet_with_images(self, writer, dataframe: pd.DataFrame, sheet_name: str, image_column: str, image_header: str):
         export_df = dataframe.drop(columns=[image_column]).copy()
@@ -209,24 +474,26 @@ class FaceMeshApp(TKMT.ThemedTKinterFrame):
             return
 
         if self._has_multiple_faces():
-            self.status_label.config(text="Multiple Faces Detected")
+            self._set_status("Multiple Faces Detected", "error", "Attendance logging requires exactly one visible face.")
             self._notify_user()
             messagebox.showerror("Error", "Multiple faces detected. Attendance logging requires exactly one face.")
             return
 
         target_img = self.get_current_cropped_face()
         if target_img is None or target_img.size == 0:
+            self._set_status("No Face Detected", "error", "No usable face was found for attendance logging.")
             self._notify_user()
             messagebox.showerror("Error", "No face detected! Turn on processing and look at the camera.")
             return
 
         users = self.known_faces_cache
         if not users:
+            self._set_status("Database Empty", "error", "Add at least one face before trying to match attendance.")
             self._notify_user()
             messagebox.showerror("Error", "Database is empty. Add a face first.")
             return
 
-        self.status_label.config(text="Identifying...")
+        self._set_status("Identifying...", "working", "Comparing the current face against registered users.")
         self.root.update()
 
         recognition_result = self.recognizer.find_match(target_img, users)
@@ -250,21 +517,21 @@ class FaceMeshApp(TKMT.ThemedTKinterFrame):
                         msg = f"Attendance Logged: {best_match_name}\nTime: {timestamp_str}"
                         self._notify_user()
                         messagebox.showinfo("Attendance Success", msg)
-                        self.status_label.config(text=f"Logged: {best_match_name}, at {timestamp_str}")
+                        self._set_status("Attendance Logged", "success", f"Logged {best_match_name} at {timestamp_str}.")
                     else:
                         msg = "Match found, but Database Write Failed."
                         self._notify_user()
                         messagebox.showerror("Database Error", msg)
-                        self.status_label.config(text="Write Error")
+                        self._set_status("Write Error", "error", "A match was found, but attendance could not be saved.")
             else:
                 msg = "Identity rejected by user. Please adjust lighting or angle and try again."
-                self.status_label.config(text="Identity Rejected")
+                self._set_status("Identity Rejected", "error", "User rejected the suggested identity match.")
                 self._notify_user()
                 messagebox.showinfo("Retry", msg)
 
         else:
             msg = "No Match Found in Database."
-            self.status_label.config(text="Unknown Face")
+            self._set_status("Unknown Face", "error", "No registered user matched the detected face.")
             self._notify_user()
             messagebox.showwarning("Failed", msg)
 
@@ -341,11 +608,15 @@ class FaceMeshApp(TKMT.ThemedTKinterFrame):
                     if num_faces == 1:
                         status_text = 'Face Detected'
                         status_color = (0, 255, 0)
+                        self._set_status("Face Detected", "success", "One face detected and ready for enrollment or attendance.")
                         self.display_image = self.draw_landmarks_on_image(self.display_image, self.results)
                     elif num_faces > 1:
                         status_text = 'Multiple Faces Detected'
                         status_color = (0, 0, 255)
+                        self._set_status("Multiple Faces Detected", "error", "Reduce the frame to one person before continuing.")
                         self.display_image = self.draw_landmarks_on_image(self.display_image, self.results)
+                else:
+                    self._set_status("No Face Detected", "error", "Move into frame and face the camera.")
 
                 text_color = (0, 255, 0) if status_color == (0, 255, 0) else (255, 0, 0)
                 cv2.putText(self.display_image, status_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, text_color, 2, cv2.LINE_AA)
@@ -357,6 +628,8 @@ class FaceMeshApp(TKMT.ThemedTKinterFrame):
             tk_image = ImageTk.PhotoImage(pil_image)
             self.video_label.config(image=tk_image)
             self.tk_image_ref = tk_image 
+
+            self._refresh_counts()
         
         self.root.after(10, self.update_frame)
 
