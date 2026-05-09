@@ -3,21 +3,23 @@ from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 from mediapipe.python.solutions import face_mesh as mp_face_mesh
 from mediapipe.tasks.python.components.containers import NormalizedLandmark
+from importlib.metadata import version
 import cv2
 import numpy as np
 import os
 
 class FaceLandmarkerWrapper:
     def __init__(self, model_path="assets/face_landmarker.task"):
-        if not os.path.exists(model_path):
-            raise FileNotFoundError(f"Model not found at {model_path}")
+        self._validate_runtime_dependencies()
 
-        with open(model_path, 'rb') as f:
-            model_buffer = f.read()
+        resolved_model_path = os.path.abspath(model_path)
+        if not os.path.exists(resolved_model_path):
+            raise FileNotFoundError(f"Model not found at {resolved_model_path}")
 
-        base_options = python.BaseOptions(model_asset_buffer=model_buffer)
+        base_options = python.BaseOptions(model_asset_path=resolved_model_path)
         options = vision.FaceLandmarkerOptions(
             base_options=base_options,
+            running_mode=vision.RunningMode.IMAGE,
             output_face_blendshapes=False,
             output_facial_transformation_matrixes=False,
             num_faces=2,
@@ -25,6 +27,18 @@ class FaceLandmarkerWrapper:
             min_face_presence_confidence=0.5,
         )
         self.landmarker = vision.FaceLandmarker.create_from_options(options)
+
+    @staticmethod
+    def _validate_runtime_dependencies():
+        protobuf_version = version("protobuf")
+        protobuf_major = int(protobuf_version.split(".", 1)[0])
+
+        if protobuf_major >= 5:
+            raise RuntimeError(
+                "Incompatible runtime detected: mediapipe 0.10.x requires protobuf < 5, "
+                f"but protobuf {protobuf_version} is installed. Install a compatible set such as "
+                "'protobuf==4.25.8 tensorflow==2.15.1 keras==2.15.0'."
+            )
 
     def detect(self, image_bgr):
         """Accepts BGR image, returns MediaPipe result object."""

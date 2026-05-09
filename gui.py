@@ -2,13 +2,18 @@ import tkinter as tk
 import TKinterModernThemes as TKMT
 from tkinter import simpledialog, messagebox
 from PIL import Image, ImageTk
+from io import BytesIO
 import cv2
-import winsound as ws
 import os
+import shutil
+import subprocess
 import pandas as pd
 import numpy as np
 import mediapipe as mp
+from openpyxl.drawing.image import Image as ExcelImage
+from openpyxl.utils import get_column_letter
 import mediapipe.python.solutions.face_mesh as mp_face_mesh
+from mediapipe.tasks.python import vision
 from mediapipe.tasks.python.components.containers import NormalizedLandmark
 
 # Custom Imports
@@ -85,7 +90,7 @@ class FaceMeshApp(TKMT.ThemedTKinterFrame):
     def toggle_process_state(self):
         self.detection_running = not self.detection_running
         self.status_label.config(text=f"Processing: On" if self.detection_running else 'Idle')
-        ws.MessageBeep(ws.MB_ICONEXCLAMATION)
+        # ws.MessageBeep(ws.MB_ICONEXCLAMATION)
 
     def add_new_face_to_db(self):
         cropped_img = self.get_current_cropped_face()
@@ -112,25 +117,80 @@ class FaceMeshApp(TKMT.ThemedTKinterFrame):
         filename = "attendance_report.xlsx"
         if self.export_to_excel(filename):
             messagebox.showinfo("Export Success", f"Data exported to {filename}")
-            os.startfile(filename) 
+            self._open_export_file(filename)
         else:
             messagebox.showerror("Export Failed", "Could not export data.")
 
     def export_to_excel(self, filename="attendance_report.xlsx"):
         try:
-            query_users = "SELECT id, name FROM users"
+            query_users = "SELECT id, name, image_blob FROM users"
             df_users = pd.read_sql_query(query_users, self.db.conn)
-            query_attendance = "SELECT log_id, user_id, name, time_str FROM attendance"
+            query_attendance = "SELECT log_id, user_id, name, time_str, capture_image_blob FROM attendance"
             df_attendance = pd.read_sql_query(query_attendance, self.db.conn)
+
             with pd.ExcelWriter(filename, engine='openpyxl') as writer:
-                df_users.to_excel(writer, sheet_name='Registered Users', index=False)
-                df_attendance.to_excel(writer, sheet_name='Attendance Logs', index=False)
+                self._export_sheet_with_images(
+                    writer=writer,
+                    dataframe=df_users,
+                    sheet_name='Registered Users',
+                    image_column='image_blob',
+                    image_header='Face Image',
+                )
+                self._export_sheet_with_images(
+                    writer=writer,
+                    dataframe=df_attendance,
+                    sheet_name='Attendance Logs',
+                    image_column='capture_image_blob',
+                    image_header='Capture Image',
+                )
                 
             print(f"Database exported successfully to {filename}")
             return True
         except Exception as e:
             print(f"Export failed: {e}")
             return False
+
+    def _export_sheet_with_images(self, writer, dataframe: pd.DataFrame, sheet_name: str, image_column: str, image_header: str):
+        export_df = dataframe.drop(columns=[image_column]).copy()
+        export_df[image_header] = ""
+        export_df.to_excel(writer, sheet_name=sheet_name, index=False)
+
+        worksheet = writer.sheets[sheet_name]
+        image_column_index = len(export_df.columns)
+        image_column_letter = get_column_letter(image_column_index)
+        worksheet.column_dimensions[image_column_letter].width = 18
+
+        for row_number, image_blob in enumerate(dataframe[image_column], start=2):
+            worksheet.row_dimensions[row_number].height = 85
+
+            if not image_blob:
+                continue
+
+            pil_image = Image.open(BytesIO(image_blob))
+            pil_image.thumbnail((96, 96))
+            image_buffer = BytesIO()
+            pil_image.save(image_buffer, format="PNG")
+            image_buffer.seek(0)
+
+            excel_image = ExcelImage(image_buffer)
+            excel_image.anchor = f"{image_column_letter}{row_number}"
+            worksheet.add_image(excel_image)
+
+    def _open_export_file(self, filename: str):
+        try:
+            if os.name == "nt":
+                os.startfile(filename)  # type: ignore[attr-defined]
+                return
+
+            opener = shutil.which("xdg-open")
+            if opener is not None:
+                subprocess.Popen(
+                    [opener, filename],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+        except Exception as e:
+            print(f"Could not automatically open export file: {e}")
         
     def log_attendance_process(self):
         if not self.detection_running:
@@ -151,7 +211,6 @@ class FaceMeshApp(TKMT.ThemedTKinterFrame):
         self.root.update()
 
         recognition_result = self.recognizer.find_match(target_img, users)
-        \
         if recognition_result:
             best_match_uid, best_match_name, best_distance = recognition_result
 
@@ -170,12 +229,12 @@ class FaceMeshApp(TKMT.ThemedTKinterFrame):
                     
                     if success:
                         msg = f"Attendance Logged: {best_match_name}\nTime: {timestamp_str}"
-                        ws.MessageBeep(ws.MB_OK)
+                        # ws.MessageBeep(ws.MB_OK)
                         messagebox.showinfo("Attendance Success", msg)
                         self.status_label.config(text=f"Logged: {best_match_name}, at {timestamp_str}")
                     else:
                         msg = "Match found, but Database Write Failed."
-                        ws.MessageBeep(ws.MB_ICONHAND)
+                        # ws.MessageBeep(ws.MB_ICONHAND)
                         messagebox.showerror("Database Error", msg)
                         self.status_label.config(text="Write Error")
             else:
@@ -185,7 +244,7 @@ class FaceMeshApp(TKMT.ThemedTKinterFrame):
 
         else:
             msg = "No Match Found in Database."
-            ws.MessageBeep(ws.MB_ICONHAND)
+            # ws.MessageBeep(ws.MB_ICONHAND)
             self.status_label.config(text="Unknown Face")
             messagebox.showwarning("Failed", msg)
 

@@ -16,6 +16,7 @@ eggs/
 .eggs/
 lib/
 lib64/
+/lib64
 parts/
 sdist/
 var/
@@ -207,9 +208,17 @@ marimo/_lsp/
 __marimo__/
 
 assets/faces.db
+assets/*.db
+assets/*.sqlite
+assets/*.sqlite3
 dump/
 Scripts
 share/
 Lib/
 pyvenv.cfg
+bin/
+include/
+package_info.json
+logs.txt
 attendance_report.xlsx
+*.xlsx
